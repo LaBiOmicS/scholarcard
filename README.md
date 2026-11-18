@@ -1,5 +1,10 @@
 # ScholarCard • Cartão Acadêmico Digital
 
+[![Acessar Página](https://img.shields.io/badge/Acessar%20Online-GitHub%20Pages-0284c7?style=for-the-badge&logo=github)](https://labiomics.github.io/scholarcard/)
+
+🌐 **Link público:** [https://labiomics.github.io/scholarcard/](https://labiomics.github.io/scholarcard/)
+
+
 > **Monocard Acadêmico Digital** leve, prático e sem exageros, desenvolvido especialmente para pesquisadores, docentes e pós-graduandos.  
 > Roda **100% no navegador (Client-Side)** no **GitHub Pages**, sem necessidade de backend, banco de dados ou compilação (zero npm/Node).
 
