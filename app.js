@@ -1,6 +1,6 @@
 /**
- * ScholarCard / LattesCard - Main Application Logic
- * Pure client-side JavaScript. Works 100% on GitHub Pages.
+ * ScholarCard - Main Application Logic
+ * Pure client-side JavaScript. Works 100% on GitHub Pages without backend.
  */
 
 let currentProfile = null;
@@ -8,17 +8,20 @@ let currentPubPage = 1;
 const PUBS_PER_PAGE = 8;
 let filteredPubs = [];
 let qrCodeInstance = null;
+let currentQrTarget = '';
 
 // Initialize on DOM ready
 document.addEventListener('DOMContentLoaded', () => {
   initTheme();
-  loadInitialProfile();
+  setupTabs();
   setupEventListeners();
   setupModalAndDropZone();
+  setupQrModal();
+  loadInitialProfile();
 });
 
 /**
- * Loads profile from localStorage (if user uploaded one) or defaults to Prof. Fabiano.
+ * Loads profile from localStorage (if user uploaded one) or defaults to DEFAULT_PROFILE.
  */
 function loadInitialProfile() {
   const saved = localStorage.getItem('scholarcard_profile');
@@ -27,12 +30,39 @@ function loadInitialProfile() {
       currentProfile = JSON.parse(saved);
     } catch (e) {
       console.warn('Erro ao carregar perfil salvo:', e);
-      currentProfile = DEFAULT_PROFILE;
+      currentProfile = typeof DEFAULT_PROFILE !== 'undefined' ? DEFAULT_PROFILE : null;
     }
-  } else {
+  } else if (typeof DEFAULT_PROFILE !== 'undefined') {
     currentProfile = DEFAULT_PROFILE;
   }
-  renderProfile(currentProfile);
+  
+  if (currentProfile) {
+    renderProfile(currentProfile);
+  }
+}
+
+/**
+ * Tab Navigation Setup
+ */
+function setupTabs() {
+  const tabButtons = document.querySelectorAll('.monocard-tabs .tab-btn');
+  const tabContents = document.querySelectorAll('.tab-content');
+
+  tabButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const targetId = btn.getAttribute('data-tab');
+      if (!targetId) return;
+
+      tabButtons.forEach(b => b.classList.remove('active'));
+      tabContents.forEach(c => c.classList.remove('active'));
+
+      btn.classList.add('active');
+      const targetContent = document.getElementById(targetId);
+      if (targetContent) {
+        targetContent.classList.add('active');
+      }
+    });
+  });
 }
 
 /**
@@ -44,104 +74,135 @@ function renderProfile(profile) {
 
   // 1. Initials and Avatar
   const initials = getInitials(profile.nome);
-  document.getElementById('avatarInitials').textContent = initials;
+  const avatarEl = document.getElementById('avatarInitials');
+  if (avatarEl) avatarEl.textContent = initials;
 
   // 2. Name and Title
-  const hasDoc = (profile.formacoes || []).some(f => f.tipo.toLowerCase().includes('doutor'));
+  const hasDoc = (profile.formacoes || []).some(f => (f.tipo || '').toLowerCase().includes('doutor'));
   const titlePrefix = hasDoc ? 'Prof. Dr. ' : 'Prof. ';
-  document.getElementById('profileName').textContent = `${titlePrefix}${profile.nome}`;
+  const nameEl = document.getElementById('profileName');
+  if (nameEl) nameEl.textContent = `${titlePrefix}${profile.nome}`;
   document.title = `${profile.nome} • ScholarCard Acadêmico`;
 
   // 3. Affiliation and Location
   const instEl = document.getElementById('affiliationText');
-  const instParts = [profile.instituicao, profile.departamento].filter(Boolean);
-  instEl.textContent = instParts.join(' • ') || 'Pesquisador(a) / Docente';
+  if (instEl) {
+    const instParts = [profile.instituicao, profile.departamento].filter(Boolean);
+    instEl.textContent = instParts.join(' • ') || 'Pesquisador(a) / Docente';
+  }
 
   const locEl = document.getElementById('locationText');
-  const locParts = [profile.cidade, profile.uf, profile.nacionalidade].filter(Boolean);
-  locEl.textContent = locParts.join(', ') || 'Brasil';
+  if (locEl) {
+    const locParts = [profile.cidade, profile.uf, profile.nacionalidade].filter(Boolean);
+    const locSpan = locEl.querySelector('span');
+    if (locSpan) {
+      locSpan.textContent = locParts.join(', ') || 'Brasil';
+    } else {
+      locEl.textContent = locParts.join(', ') || 'Brasil';
+    }
+  }
 
   // 4. Badges (Lattes, ORCID, Update Date)
   const lattesBadge = document.getElementById('lattesBadge');
-  if (profile.lattes_id) {
-    lattesBadge.href = `http://lattes.cnpq.br/${profile.lattes_id}`;
-    lattesBadge.innerHTML = `
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
-      Lattes: ${profile.lattes_id}
-    `;
-    lattesBadge.style.display = 'inline-flex';
-  } else {
-    lattesBadge.style.display = 'none';
+  if (lattesBadge) {
+    if (profile.lattes_id) {
+      lattesBadge.href = `http://lattes.cnpq.br/${profile.lattes_id}`;
+      lattesBadge.innerHTML = `
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+        <span>Lattes: ${profile.lattes_id}</span>
+      `;
+      lattesBadge.style.display = 'inline-flex';
+    } else {
+      lattesBadge.style.display = 'none';
+    }
   }
 
   const orcidBadge = document.getElementById('orcidBadge');
-  if (profile.orcid) {
-    const cleanOrcid = profile.orcid.replace('https://orcid.org/', '').replace('http://orcid.org/', '');
-    orcidBadge.href = `https://orcid.org/${cleanOrcid}`;
-    orcidBadge.innerHTML = `
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.372 0 0 5.372 0 12s5.372 12 12 12 12-5.372 12-12S18.628 0 12 0zm-3.87 18.067H5.67V8.583h2.46v9.484zm-1.23-10.74c-.792 0-1.433-.642-1.433-1.434 0-.791.641-1.433 1.433-1.433.792 0 1.434.642 1.434 1.433 0 .792-.642 1.434-1.434 1.434zm11.11 5.86c0 2.766-2.023 4.88-5.385 4.88h-3.95V8.583h4.195c3.342 0 5.14 2.114 5.14 4.604zm-2.52 0c0-1.637-1.077-2.73-2.825-2.73H10.1v5.48h2.365c1.748 0 2.825-1.114 2.825-2.75z"/></svg>
-      ORCID: ${cleanOrcid}
-    `;
-    orcidBadge.style.display = 'inline-flex';
-  } else {
-    orcidBadge.style.display = 'none';
+  if (orcidBadge) {
+    if (profile.orcid) {
+      const cleanOrcid = profile.orcid.replace('https://orcid.org/', '').replace('http://orcid.org/', '');
+      orcidBadge.href = `https://orcid.org/${cleanOrcid}`;
+      orcidBadge.innerHTML = `
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.372 0 0 5.372 0 12s5.372 12 12 12 12-5.372 12-12S18.628 0 12 0zm-3.87 18.067H5.67V8.583h2.46v9.484zm-1.23-10.74c-.792 0-1.433-.642-1.433-1.434 0-.791.641-1.433 1.433-1.433.792 0 1.434.642 1.434 1.433 0 .792-.642 1.434-1.434 1.434zm11.11 5.86c0 2.766-2.023 4.88-5.385 4.88h-3.95V8.583h4.195c3.342 0 5.14 2.114 5.14 4.604zm-2.52 0c0-1.637-1.077-2.73-2.825-2.73H10.1v5.48h2.365c1.748 0 2.825-1.114 2.825-2.75z"/></svg>
+        <span>ORCID: ${cleanOrcid}</span>
+      `;
+      orcidBadge.style.display = 'inline-flex';
+    } else {
+      orcidBadge.style.display = 'none';
+    }
   }
 
   const dateBadge = document.getElementById('dateBadge');
-  if (profile.data_atualizacao) {
-    dateBadge.textContent = `Atualizado em: ${profile.data_atualizacao}`;
-    dateBadge.style.display = 'inline-flex';
-  } else {
-    dateBadge.style.display = 'none';
+  if (dateBadge) {
+    if (profile.data_atualizacao) {
+      dateBadge.textContent = `Atualizado em: ${profile.data_atualizacao}`;
+      dateBadge.style.display = 'inline-flex';
+    } else {
+      dateBadge.style.display = 'none';
+    }
   }
 
-  // 5. QR Code Generator
-  generateQrCode(profile);
-
-  // 6. Metrics Grid
+  // 5. Bento Key Metrics
   const m = profile.metricas || {};
-  document.getElementById('metricArtigos').textContent = m.artigos || (profile.artigos ? profile.artigos.length : 0);
-  document.getElementById('metricSoftwares').textContent = m.softwares || (profile.softwares ? profile.softwares.length : 0);
-  document.getElementById('metricLivros').textContent = (m.livros || 0) + (m.capitulos || 0);
-  document.getElementById('metricOrientacoes').textContent = (m.orientacoes_concluidas || 0) + (m.orientacoes_andamento || 0);
-  document.getElementById('metricEventos').textContent = m.eventos || 0;
+  const artigosCount = m.artigos || (profile.artigos ? profile.artigos.length : 0);
+  const softwaresCount = m.softwares || (profile.softwares ? profile.softwares.length : 0);
+  const livrosCount = (m.livros || 0) + (m.capitulos || 0);
+  const orientacoesCount = (m.orientacoes_concluidas || 0) + (m.orientacoes_andamento || 0);
 
-  // 7. Resumo / Bio
+  setElemText('metricArtigos', artigosCount);
+  setElemText('metricSoftwares', softwaresCount);
+  setElemText('metricLivros', livrosCount);
+  setElemText('metricOrientacoes', orientacoesCount);
+
+  // 6. Resumo / Bio
   const bioEl = document.getElementById('bioText');
-  if (profile.resumo) {
-    bioEl.innerHTML = profile.resumo.replace(/\n\n/g, '<br><br>');
-  } else {
-    bioEl.textContent = 'Resumo acadêmico não informado no currículo Lattes.';
+  if (bioEl) {
+    if (profile.resumo) {
+      bioEl.innerHTML = profile.resumo.replace(/\n\n/g, '<br><br>');
+    } else {
+      bioEl.textContent = 'Resumo acadêmico não informado no currículo Lattes.';
+    }
   }
 
-  // 8. Research Areas Tags
+  // 7. Research Areas Tags
   const areasContainer = document.getElementById('areasContainer');
-  areasContainer.innerHTML = '';
-  if (profile.areas && profile.areas.length > 0) {
-    profile.areas.forEach(area => {
-      const tag = document.createElement('span');
-      tag.className = 'tag-chip';
-      tag.textContent = area;
-      areasContainer.appendChild(tag);
-    });
-  } else {
-    areasContainer.innerHTML = '<span class="text-muted" style="font-size:0.85rem">Nenhuma área especificada.</span>';
+  if (areasContainer) {
+    areasContainer.innerHTML = '';
+    if (profile.areas && profile.areas.length > 0) {
+      profile.areas.forEach(area => {
+        const tag = document.createElement('span');
+        tag.className = 'tag-chip';
+        tag.textContent = area;
+        areasContainer.appendChild(tag);
+      });
+    } else {
+      areasContainer.innerHTML = '<span class="text-muted" style="font-size:0.85rem">Nenhuma área especificada.</span>';
+    }
   }
 
-  // 9. Academic Timeline (Formação)
-  renderFormation(profile.formacoes || []);
+  // 8. Academic Formations (Overview & Full Timeline)
+  renderFormations(profile.formacoes || []);
 
-  // 10. Publications (with filter & pagination)
+  // 9. Publications (Filter & Pagination)
   filteredPubs = [...(profile.artigos || [])];
   currentPubPage = 1;
-  document.getElementById('searchPubsInput').value = '';
+  const searchInput = document.getElementById('searchPubsInput');
+  if (searchInput) searchInput.value = '';
   renderPublications();
 
-  // 11. Softwares & Technology Section
+  // 10. Softwares & Technologies
   renderSoftwares(profile.softwares || []);
 
-  // 12. Supervisions Section
+  // 11. Supervisions
   renderSupervisions(profile.orientacoes_concluidas || [], profile.orientacoes_andamento || []);
+
+  // 12. QR Code Generator
+  generateQrCode(profile);
+}
+
+function setElemText(id, text) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = text;
 }
 
 /**
@@ -155,21 +216,27 @@ function getInitials(fullName) {
 }
 
 /**
- * Generates QR Code pointing to Lattes link or current page.
+ * Generates QR Code for modal and updates URL text.
  */
 function generateQrCode(profile) {
-  const qrTarget = profile.lattes_id
+  currentQrTarget = profile.lattes_id
     ? `http://lattes.cnpq.br/${profile.lattes_id}`
     : window.location.href;
 
-  const container = document.getElementById('heroQrCode');
+  const urlDisplay = document.getElementById('qrTargetUrlText');
+  if (urlDisplay) {
+    urlDisplay.textContent = currentQrTarget;
+  }
+
+  const container = document.getElementById('modalQrCode');
+  if (!container) return;
   container.innerHTML = '';
 
   if (typeof QRCode !== 'undefined') {
     qrCodeInstance = new QRCode(container, {
-      text: qrTarget,
-      width: 88,
-      height: 88,
+      text: currentQrTarget,
+      width: 170,
+      height: 170,
       colorDark: '#0f172a',
       colorLight: '#ffffff',
       correctLevel: QRCode.CorrectLevel.M
@@ -178,31 +245,83 @@ function generateQrCode(profile) {
 }
 
 /**
- * Renders Academic Formation Timeline.
+ * Sets up the QR Code Modal interactions.
  */
-function renderFormation(formacoes) {
-  const container = document.getElementById('formationTimeline');
-  container.innerHTML = '';
+function setupQrModal() {
+  const qrModal = document.getElementById('qrModal');
+  const openQrBtn = document.getElementById('openQrBtn');
+  const closeQrModalBtn = document.getElementById('closeQrModalBtn');
+  const closeQrModalBtnBottom = document.getElementById('closeQrModalBtnBottom');
+  const copyQrLinkBtn = document.getElementById('copyQrLinkBtn');
 
-  if (!formacoes || formacoes.length === 0) {
-    container.innerHTML = '<p class="text-muted" style="font-size: 0.9rem;">Informações de formação não encontradas.</p>';
-    return;
+  if (openQrBtn && qrModal) {
+    openQrBtn.addEventListener('click', () => {
+      qrModal.classList.add('open');
+    });
   }
 
-  formacoes.forEach(f => {
-    const item = document.createElement('div');
-    item.className = 'timeline-item';
-    item.innerHTML = `
-      <div class="timeline-dot"></div>
-      <div class="timeline-header">
-        <span class="timeline-degree">${escapeHtml(f.tipo)}</span>
-        ${f.ano ? `<span class="timeline-year">${escapeHtml(f.ano)}</span>` : ''}
+  const closeQr = () => {
+    if (qrModal) qrModal.classList.remove('open');
+  };
+
+  if (closeQrModalBtn) closeQrModalBtn.addEventListener('click', closeQr);
+  if (closeQrModalBtnBottom) closeQrModalBtnBottom.addEventListener('click', closeQr);
+
+  if (qrModal) {
+    qrModal.addEventListener('click', (e) => {
+      if (e.target === qrModal) closeQr();
+    });
+  }
+
+  if (copyQrLinkBtn) {
+    copyQrLinkBtn.addEventListener('click', () => {
+      if (currentQrTarget) {
+        copyToClipboard(currentQrTarget, 'Link oficial do currículo copiado!');
+      }
+    });
+  }
+}
+
+/**
+ * Renders Academic Formation in both Overview (compact) and Trajectory (full).
+ */
+function renderFormations(formacoes) {
+  const compactContainer = document.getElementById('overviewFormationTimeline');
+  const fullContainer = document.getElementById('fullFormationTimeline');
+
+  const makeRow = (f) => {
+    const row = document.createElement('div');
+    row.className = 'timeline-row';
+    row.innerHTML = `
+      <span class="degree-tag">${escapeHtml(f.tipo || 'Grau')}</span>
+      <div class="degree-body">
+        <div class="degree-course">${escapeHtml(f.curso || f.tipo || 'Formação')}</div>
+        <div class="degree-inst">${escapeHtml(f.instituicao || '')}</div>
       </div>
-      <div class="timeline-title">${escapeHtml(f.curso || f.tipo)}</div>
-      <div class="timeline-inst">${escapeHtml(f.instituicao)}</div>
+      ${f.ano ? `<div class="degree-year">${escapeHtml(f.ano)}</div>` : ''}
     `;
-    container.appendChild(item);
-  });
+    return row;
+  };
+
+  if (compactContainer) {
+    compactContainer.innerHTML = '';
+    if (!formacoes || formacoes.length === 0) {
+      compactContainer.innerHTML = '<p class="text-muted" style="font-size: 0.85rem;">Informações de formação não encontradas.</p>';
+    } else {
+      // Prioritize graduate degrees or show first 3
+      const preview = formacoes.slice(0, 3);
+      preview.forEach(f => compactContainer.appendChild(makeRow(f)));
+    }
+  }
+
+  if (fullContainer) {
+    fullContainer.innerHTML = '';
+    if (!formacoes || formacoes.length === 0) {
+      fullContainer.innerHTML = '<p class="text-muted" style="font-size: 0.85rem;">Informações de formação não encontradas.</p>';
+    } else {
+      formacoes.forEach(f => fullContainer.appendChild(makeRow(f)));
+    }
+  }
 }
 
 /**
@@ -215,13 +334,17 @@ function renderPublications() {
   const prevBtn = document.getElementById('prevPubBtn');
   const nextBtn = document.getElementById('nextPubBtn');
 
-  countLabel.textContent = `${filteredPubs.length} artigo(s) encontrado(s)`;
+  if (countLabel) {
+    countLabel.textContent = `${filteredPubs.length} artigo(s)`;
+  }
+
+  if (!container) return;
 
   if (filteredPubs.length === 0) {
-    container.innerHTML = '<p style="font-size:0.9rem; color:var(--text-muted); padding:1rem 0;">Nenhum artigo encontrado com o termo pesquisado.</p>';
-    pageLabel.textContent = 'Página 0 de 0';
-    prevBtn.disabled = true;
-    nextBtn.disabled = true;
+    container.innerHTML = '<p style="font-size:0.875rem; color:var(--text-muted); padding:1rem 0;">Nenhum artigo encontrado com o termo pesquisado.</p>';
+    if (pageLabel) pageLabel.textContent = 'Página 0 de 0';
+    if (prevBtn) prevBtn.disabled = true;
+    if (nextBtn) nextBtn.disabled = true;
     return;
   }
 
@@ -229,9 +352,9 @@ function renderPublications() {
   if (currentPubPage > totalPages) currentPubPage = totalPages;
   if (currentPubPage < 1) currentPubPage = 1;
 
-  pageLabel.textContent = `Página ${currentPubPage} de ${totalPages}`;
-  prevBtn.disabled = currentPubPage === 1;
-  nextBtn.disabled = currentPubPage === totalPages;
+  if (pageLabel) pageLabel.textContent = `Página ${currentPubPage} de ${totalPages}`;
+  if (prevBtn) prevBtn.disabled = currentPubPage === 1;
+  if (nextBtn) nextBtn.disabled = currentPubPage === totalPages;
 
   const startIndex = (currentPubPage - 1) * PUBS_PER_PAGE;
   const currentSlice = filteredPubs.slice(startIndex, startIndex + PUBS_PER_PAGE);
@@ -239,20 +362,20 @@ function renderPublications() {
   container.innerHTML = '';
   currentSlice.forEach(pub => {
     const card = document.createElement('div');
-    card.className = 'pub-card';
+    card.className = 'pub-item';
 
     const doiUrl = pub.doi ? (pub.doi.startsWith('http') ? pub.doi : `https://doi.org/${pub.doi}`) : null;
     const authorsStr = (pub.autores || []).slice(0, 5).join('; ') + ((pub.autores || []).length > 5 ? '; et al.' : '');
 
     card.innerHTML = `
-      <div class="pub-meta-row">
-        ${pub.ano ? `<span class="pub-year">${escapeHtml(pub.ano)}</span>` : ''}
-        ${pub.periodico ? `<span class="pub-journal">${escapeHtml(pub.periodico)}</span>` : ''}
+      <div class="pub-header">
+        ${pub.ano ? `<span class="pub-year-badge">${escapeHtml(pub.ano)}</span>` : ''}
+        ${pub.periodico ? `<span class="pub-journal-name">${escapeHtml(pub.periodico)}</span>` : ''}
       </div>
-      <div class="pub-title">${escapeHtml(pub.titulo)}</div>
-      ${authorsStr ? `<div class="pub-authors">${escapeHtml(authorsStr)}</div>` : ''}
+      <div class="pub-article-title">${escapeHtml(pub.titulo)}</div>
+      ${authorsStr ? `<div class="pub-coauthors">${escapeHtml(authorsStr)}</div>` : ''}
       ${doiUrl ? `
-        <a href="${escapeHtml(doiUrl)}" target="_blank" rel="noopener noreferrer" class="pub-doi-link">
+        <a href="${escapeHtml(doiUrl)}" target="_blank" rel="noopener noreferrer" class="pub-doi-chip">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
           DOI: ${escapeHtml(pub.doi)}
         </a>` : ''}
@@ -266,57 +389,67 @@ function renderPublications() {
  */
 function renderSoftwares(softwares) {
   const container = document.getElementById('softwareGrid');
-  const section = document.getElementById('softwareSection');
+  const countBadge = document.getElementById('softwareCountBadge');
+  const softwareTabBtn = document.getElementById('softwareTabBtn');
 
-  if (!softwares || softwares.length === 0) {
-    section.style.display = 'none';
+  const count = (softwares || []).length;
+
+  if (countBadge) {
+    countBadge.textContent = `${count} ${count === 1 ? 'item' : 'itens'}`;
+  }
+
+  // If researcher has 0 softwares, keep tab visible or indicate empty state gracefully
+  if (!container) return;
+
+  if (count === 0) {
+    container.innerHTML = '<p class="text-muted" style="font-size: 0.875rem; padding: 0.5rem 0;">Nenhum software ou registro de propriedade intelectual cadastrado.</p>';
     return;
   }
 
-  section.style.display = 'block';
   container.innerHTML = '';
-
   softwares.forEach(sw => {
     const card = document.createElement('div');
-    card.className = 'software-card';
+    card.className = 'software-item';
     card.innerHTML = `
-      <div class="software-title">${escapeHtml(sw.titulo)}</div>
-      <div class="software-meta">${sw.ano ? `Ano: ${escapeHtml(sw.ano)}` : ''} ${sw.plataforma ? `• Plataforma: ${escapeHtml(sw.plataforma)}` : ''}</div>
-      ${sw.finalidade ? `<div class="software-purpose">${escapeHtml(sw.finalidade)}</div>` : ''}
+      <div class="sw-title">${escapeHtml(sw.titulo)}</div>
+      <div class="sw-meta">${sw.ano ? `Ano: ${escapeHtml(sw.ano)}` : ''} ${sw.plataforma ? `• Plataforma: ${escapeHtml(sw.plataforma)}` : ''}</div>
+      ${sw.finalidade ? `<div class="sw-purpose">${escapeHtml(sw.finalidade)}</div>` : ''}
     `;
     container.appendChild(card);
   });
 }
 
 /**
- * Renders Supervisions summary.
+ * Renders Supervisions summary in Trajectory tab.
  */
 function renderSupervisions(concluidas, andamento) {
   const container = document.getElementById('supervisionsList');
-  const total = concluidas.length + andamento.length;
+  if (!container) return;
+
+  const total = (concluidas || []).length + (andamento || []).length;
 
   if (total === 0) {
-    container.innerHTML = '<p class="text-muted" style="font-size: 0.9rem;">Nenhuma orientação registrada.</p>';
+    container.innerHTML = '<p class="text-muted" style="font-size: 0.875rem;">Nenhuma orientação registrada.</p>';
     return;
   }
 
   container.innerHTML = '';
   const all = [
-    ...concluidas.map(o => ({ ...o, status: 'Concluída' })),
-    ...andamento.map(o => ({ ...o, status: 'Em andamento' }))
-  ].slice(0, 10); // Show top 10
+    ...(andamento || []).map(o => ({ ...o, status: 'Em andamento' })),
+    ...(concluidas || []).map(o => ({ ...o, status: 'Concluída' }))
+  ].slice(0, 15);
 
   all.forEach(o => {
     const item = document.createElement('div');
-    item.className = 'pub-card';
+    item.className = 'pub-item';
     item.innerHTML = `
-      <div class="pub-meta-row">
-        <span class="pub-year">${escapeHtml(o.ano || 'Atual')}</span>
-        <span class="timeline-degree">${escapeHtml(o.tipo || 'Orientação')}</span>
+      <div class="pub-header">
+        <span class="pub-year-badge">${escapeHtml(o.ano || 'Atual')}</span>
+        <span class="degree-tag">${escapeHtml(o.tipo || 'Orientação')}</span>
         <span style="font-size:0.75rem; color:var(--text-muted); font-weight:600;">(${escapeHtml(o.status)})</span>
       </div>
-      <div class="pub-title">${escapeHtml(o.titulo || 'Orientação')}</div>
-      <div class="pub-authors">Orientando(a): <strong>${escapeHtml(o.orientado || 'Discente')}</strong> ${o.instituicao ? `• ${escapeHtml(o.instituicao)}` : ''}</div>
+      <div class="pub-article-title">${escapeHtml(o.titulo || 'Trabalho de Conclusão / Pesquisa')}</div>
+      <div class="pub-coauthors">Orientando(a): <strong>${escapeHtml(o.orientado || 'Discente')}</strong> ${o.instituicao ? `• ${escapeHtml(o.instituicao)}` : ''}</div>
     `;
     container.appendChild(item);
   });
@@ -327,85 +460,114 @@ function renderSupervisions(concluidas, andamento) {
  */
 function setupEventListeners() {
   // Theme toggle
-  document.getElementById('themeToggleBtn').addEventListener('click', toggleTheme);
+  const themeBtn = document.getElementById('themeToggleBtn');
+  if (themeBtn) {
+    themeBtn.addEventListener('click', toggleTheme);
+  }
 
   // Copy Citation button
-  document.getElementById('copyCitationBtn').addEventListener('click', () => {
-    if (!currentProfile) return;
-    const citationStr = (currentProfile.nome_citacoes && currentProfile.nome_citacoes.length > 0)
-      ? currentProfile.nome_citacoes.join('; ')
-      : currentProfile.nome;
-    copyToClipboard(citationStr, 'Nome em citações copiado com sucesso!');
-  });
+  const copyCitationBtn = document.getElementById('copyCitationBtn');
+  if (copyCitationBtn) {
+    copyCitationBtn.addEventListener('click', () => {
+      if (!currentProfile) return;
+      const citationStr = (currentProfile.nome_citacoes && currentProfile.nome_citacoes.length > 0)
+        ? currentProfile.nome_citacoes.join('; ')
+        : currentProfile.nome;
+      copyToClipboard(citationStr, 'Formato de citação copiado para a área de transferência!');
+    });
+  }
 
   // Copy Mini-Bio button
-  document.getElementById('copyBioBtn').addEventListener('click', () => {
-    if (!currentProfile || !currentProfile.resumo) return;
-    copyToClipboard(currentProfile.resumo, 'Mini-bio acadêmica copiada com sucesso!');
-  });
+  const copyBioBtn = document.getElementById('copyBioBtn');
+  if (copyBioBtn) {
+    copyBioBtn.addEventListener('click', () => {
+      if (!currentProfile || !currentProfile.resumo) return;
+      copyToClipboard(currentProfile.resumo, 'Biografia acadêmica copiada com sucesso!');
+    });
+  }
 
   // Download vCard button
-  document.getElementById('downloadVcardBtn').addEventListener('click', () => {
-    if (!currentProfile) return;
-    generateAndDownloadVCard(currentProfile);
-  });
+  const downloadVcardBtn = document.getElementById('downloadVcardBtn');
+  if (downloadVcardBtn) {
+    downloadVcardBtn.addEventListener('click', () => {
+      if (!currentProfile) return;
+      generateAndDownloadVCard(currentProfile);
+    });
+  }
 
   // Print / Save PDF
-  document.getElementById('printCardBtn').addEventListener('click', () => {
-    window.print();
-  });
+  const printCardBtn = document.getElementById('printCardBtn');
+  if (printCardBtn) {
+    printCardBtn.addEventListener('click', () => {
+      window.print();
+    });
+  }
 
   // Publications search filter
   const searchInput = document.getElementById('searchPubsInput');
-  searchInput.addEventListener('input', (e) => {
-    const query = e.target.value.toLowerCase().trim();
-    if (!query) {
-      filteredPubs = [...(currentProfile.artigos || [])];
-    } else {
-      filteredPubs = (currentProfile.artigos || []).filter(p => 
-        (p.titulo && p.titulo.toLowerCase().includes(query)) ||
-        (p.periodico && p.periodico.toLowerCase().includes(query)) ||
-        (p.ano && p.ano.includes(query)) ||
-        (p.autores && p.autores.some(a => a.toLowerCase().includes(query)))
-      );
-    }
-    currentPubPage = 1;
-    renderPublications();
-  });
+  if (searchInput) {
+    searchInput.addEventListener('input', (e) => {
+      const query = e.target.value.toLowerCase().trim();
+      if (!query) {
+        filteredPubs = [...(currentProfile.artigos || [])];
+      } else {
+        filteredPubs = (currentProfile.artigos || []).filter(p => 
+          (p.titulo && p.titulo.toLowerCase().includes(query)) ||
+          (p.periodico && p.periodico.toLowerCase().includes(query)) ||
+          (p.ano && p.ano.includes(query)) ||
+          (p.autores && p.autores.some(a => a.toLowerCase().includes(query)))
+        );
+      }
+      currentPubPage = 1;
+      renderPublications();
+    });
+  }
 
   // Pagination buttons
-  document.getElementById('prevPubBtn').addEventListener('click', () => {
-    if (currentPubPage > 1) {
-      currentPubPage--;
-      renderPublications();
-    }
-  });
+  const prevPubBtn = document.getElementById('prevPubBtn');
+  if (prevPubBtn) {
+    prevPubBtn.addEventListener('click', () => {
+      if (currentPubPage > 1) {
+        currentPubPage--;
+        renderPublications();
+      }
+    });
+  }
 
-  document.getElementById('nextPubBtn').addEventListener('click', () => {
-    const totalPages = Math.ceil(filteredPubs.length / PUBS_PER_PAGE);
-    if (currentPubPage < totalPages) {
-      currentPubPage++;
-      renderPublications();
-    }
-  });
+  const nextPubBtn = document.getElementById('nextPubBtn');
+  if (nextPubBtn) {
+    nextPubBtn.addEventListener('click', () => {
+      const totalPages = Math.ceil(filteredPubs.length / PUBS_PER_PAGE);
+      if (currentPubPage < totalPages) {
+        currentPubPage++;
+        renderPublications();
+      }
+    });
+  }
 
   // Reset to default Prof. Fabiano
-  document.getElementById('resetProfileBtn').addEventListener('click', () => {
-    localStorage.removeItem('scholarcard_profile');
-    currentProfile = DEFAULT_PROFILE;
-    renderProfile(currentProfile);
-    closeModal();
-    showToast('Perfil padrão (Prof. Fabiano) restaurado!');
-  });
+  const resetBtn = document.getElementById('resetProfileBtn');
+  if (resetBtn) {
+    resetBtn.addEventListener('click', () => {
+      localStorage.removeItem('scholarcard_profile');
+      if (typeof DEFAULT_PROFILE !== 'undefined') {
+        currentProfile = DEFAULT_PROFILE;
+        renderProfile(currentProfile);
+      }
+      closeModal();
+      showToast('Perfil padrão (Prof. Fabiano) restaurado!');
+    });
+  }
 
   // Preset selector
   const presetSelect = document.getElementById('samplePresetsSelect');
-  if (typeof SAMPLE_PROFILES !== 'undefined') {
+  if (presetSelect && typeof SAMPLE_PROFILES !== 'undefined') {
+    presetSelect.innerHTML = '';
     Object.keys(SAMPLE_PROFILES).forEach(key => {
       const p = SAMPLE_PROFILES[key];
       const opt = document.createElement('option');
       opt.value = key;
-      opt.textContent = `${p.nome} (${p.metricas.artigos} artigos)`;
+      opt.textContent = `${p.nome} (${(p.metricas && p.metricas.artigos) || 0} artigos)`;
       if (key === 'fabiano') opt.selected = true;
       presetSelect.appendChild(opt);
     });
@@ -433,41 +595,49 @@ function setupModalAndDropZone() {
   const dropZone = document.getElementById('xmlDropZone');
   const fileInput = document.getElementById('xmlFileInput');
 
-  openBtn.addEventListener('click', () => modal.classList.add('open'));
-  closeBtn.addEventListener('click', closeModal);
-  modal.addEventListener('click', (e) => {
-    if (e.target === modal) closeModal();
-  });
-
-  // Drag & drop
-  dropZone.addEventListener('click', () => fileInput.click());
-
-  ['dragenter', 'dragover'].forEach(name => {
-    dropZone.addEventListener(name, (e) => {
-      e.preventDefault();
-      dropZone.classList.add('dragover');
+  if (openBtn && modal) {
+    openBtn.addEventListener('click', () => modal.classList.add('open'));
+  }
+  if (closeBtn) {
+    closeBtn.addEventListener('click', closeModal);
+  }
+  if (modal) {
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) closeModal();
     });
-  });
+  }
 
-  ['dragleave', 'drop'].forEach(name => {
-    dropZone.addEventListener(name, (e) => {
-      e.preventDefault();
-      dropZone.classList.remove('dragover');
+  if (dropZone && fileInput) {
+    dropZone.addEventListener('click', () => fileInput.click());
+
+    ['dragenter', 'dragover'].forEach(name => {
+      dropZone.addEventListener(name, (e) => {
+        e.preventDefault();
+        dropZone.classList.add('dragover');
+      });
     });
-  });
 
-  dropZone.addEventListener('drop', (e) => {
-    const files = e.dataTransfer.files;
-    if (files.length > 0) handleFileUpload(files[0]);
-  });
+    ['dragleave', 'drop'].forEach(name => {
+      dropZone.addEventListener(name, (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('dragover');
+      });
+    });
 
-  fileInput.addEventListener('change', (e) => {
-    if (e.target.files.length > 0) handleFileUpload(e.target.files[0]);
-  });
+    dropZone.addEventListener('drop', (e) => {
+      const files = e.dataTransfer.files;
+      if (files.length > 0) handleFileUpload(files[0]);
+    });
+
+    fileInput.addEventListener('change', (e) => {
+      if (e.target.files.length > 0) handleFileUpload(e.target.files[0]);
+    });
+  }
 }
 
 function closeModal() {
-  document.getElementById('uploadModal').classList.remove('open');
+  const modal = document.getElementById('uploadModal');
+  if (modal) modal.classList.remove('open');
 }
 
 /**
